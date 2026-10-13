@@ -21,7 +21,7 @@ from .glint import FlatSpecGlintCorrector, HedleyGlintCorrector
 from .irradiance import IrradianceConverter
 from .mosaic import add_geotiff_overviews, convert_geotiff_to_8bit, mosaic_geotiffs
 from .orthorectification import FlatTerrainOrthorectifier
-from .pipeline import Pipeline, find_datasets
+from .pipeline import find_datasets
 from .quicklook import QuickLookProcessor
 from .radiance import RadianceConverter
 from .reflectance import ReflectanceConverter

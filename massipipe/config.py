@@ -3,8 +3,7 @@
 Provides functions for reading, writing, and exporting YAML configuration files,
 and defines Pydantic models for Massipipe processing options.
 """
-
-import warnings
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union
@@ -12,12 +11,103 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union
 import yaml
 from pydantic import (
     BaseModel,
+    Field,
     NonNegativeFloat,
     NonNegativeInt,
     PositiveFloat,
     PositiveInt,
+    ValidationError,
     field_validator,
 )
+
+logger = logging.getLogger(__name__)
+
+DataStartingPoint = Literal["raw", "radiance"]
+
+class RuntimeContext(BaseModel):
+    bootstrap_options: BootstrapOptions
+    calibration_paths: CalibrationPaths
+    base_product_paths: BaseProductPaths
+    product_paths: ProductPaths
+
+    config: Config
+    data_starting_point: DataStartingPoint
+    base_filenames: list[str]
+
+
+class BootstrapOptions(BaseModel):
+    dataset_dir: Path
+    config_file_path: Path
+    calibration_dir: Path
+    logs: Path
+    dataset_name: str
+
+
+class CalibrationPaths(BaseModel):
+    radiance: Path
+    irradiance: Path
+
+
+class BaseProductPaths(BaseModel):
+    raw: Path
+    imu_data: Path
+    quicklook: Path
+    radiance: Path
+    radiance_rgb: Path
+    radiance_gc: Path
+    radiance_gc_rgb: Path
+    # irradiance: Path # where does this come from?
+    reflectance: Path
+    reflectance_gc: Path
+    reflectance_gc_rgb: Path
+    geo_transform: Path
+    mosaic: Path
+    mosaic_orthophoto: Path
+
+
+class ProductPaths(BaseModel):
+    raw: list[Path] = Field(default_factory=list)
+    raw_spec: list[Path] = Field(default_factory=list)
+    imu_data: list[Path] = Field(default_factory=list)
+    quicklook: list[Path] = Field(default_factory=list)
+    radiance: list[Path] = Field(default_factory=list)
+    radiance_rgb: list[Path] = Field(default_factory=list)
+    radiance_gc: list[Path] = Field(default_factory=list)
+    radiance_gc_rgb: list[Path] = Field(default_factory=list)
+    irradiance: list[Path] = Field(default_factory=list)
+    reflectance: list[Path] = Field(default_factory=list)
+    reflectance_gc: list[Path] = Field(default_factory=list)
+    reflectance_gc_rgb: list[Path] = Field(default_factory=list)
+    geo_transform: list[Path] = Field(default_factory=list)
+    times: list[Path] = Field(default_factory=list)
+    lcf: list[Path] = Field(default_factory=list)
+    mosaic_rad: Path = Field(default_factory=Path)
+    mosaic_rad_gc: Path = Field(default_factory=Path)
+    mosaic_refl_gc: Path = Field(default_factory=Path)
+
+
+def load_config_from_file(boostrap_options: BootstrapOptions) -> Config | None:
+    """Load or reload configuration from a YAML file.
+
+    Reads the configuration from `self.config_file_path`, validates it using Pydantic,
+    and assigns the loaded options to `self.config`. Logs warnings on validation errors.
+    """
+    try:
+        with open(boostrap_options.config_file_path, "r") as stream:
+            config = yaml.safe_load(stream)
+    except IOError:
+        logger.exception(f"Error parsing config file {boostrap_options.config_file_path}")
+        raise
+
+    try:
+        full_config = Config(**config)
+    except ValidationError as e:
+        logger.warning(f"Validation error while processing {boostrap_options.config_file_path}")
+        logger.warning(str(e))
+        logger.warning(f"No configuration loaded for {boostrap_options.dataset_dir}.")
+        return None
+
+    return full_config
 
 
 def read_config(yaml_path: Union[Path, str]) -> Any:

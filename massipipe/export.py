@@ -8,6 +8,8 @@ import shutil
 import zipfile
 from pathlib import Path
 
+from typing_extensions import deprecated
+
 from massipipe.license import write_license
 from massipipe.readme import write_readme
 
@@ -15,6 +17,7 @@ from massipipe.readme import write_readme
 logger = logging.getLogger(__name__)
 
 
+# TODO: remove
 def configure_export_log_file_handler(file_handler: logging.FileHandler):
     """Configure the export module logger to use the provided file handler."""
     logger.addHandler(file_handler)
