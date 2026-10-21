@@ -17,14 +17,14 @@ import logging
 from .config import Config, read_config, update_yaml
 from .export import export_dataset_zip
 from .georeferencing import ImuDataParser, ImuGeoTransformer, georeferenced_hyspec_to_rgb_geotiff
-from .glint import FlatSpecGlintCorrector, HedleyGlintCorrector
-from .irradiance import IrradianceConverter
+from massipipe.hsi.glint import FlatSpecGlintCorrector, HedleyGlintCorrector
+from massipipe.hsi.irradiance import IrradianceConverter
 from .mosaic import add_geotiff_overviews, convert_geotiff_to_8bit, mosaic_geotiffs
 from .orthorectification import FlatTerrainOrthorectifier
 from .pipeline import find_datasets
 from .quicklook import QuickLookProcessor
-from .radiance import RadianceConverter
-from .reflectance import ReflectanceConverter
+from massipipe.hsi.radiance import RadianceConverter
+from massipipe.hsi.reflectance import ReflectanceConverter
 from .utils import (
     closest_wl_index,
     percentile_stretch_image,

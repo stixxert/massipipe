@@ -1,40 +1,10 @@
 import logging
 
 from massipipe.config import RuntimeContext
-from massipipe.georeferencing import ImuDataParser
-from massipipe.irradiance import IrradianceConverter, WavelengthCalibrator
-from massipipe.radiance import RadianceConverter
+from massipipe.hsi.irradiance import IrradianceConverter, WavelengthCalibrator
+from massipipe.hsi.radiance import RadianceConverter
 
 logger = logging.getLogger(__name__)
-
-def parse_and_save_imu_data(runtime_context: RuntimeContext):
-    """Parse *.lcf and *.times files with IMU data and save as JSON"""
-
-    logger.info("---- IMU DATA PROCESSING ----")
-
-    runtime_context.base_product_paths.imu_data.mkdir(exist_ok=True)
-
-    imu_data_parser = ImuDataParser()
-
-    lcf_paths, times_paths, imu_data_paths = (
-        runtime_context.product_paths.lcf,
-        runtime_context.product_paths.times,
-        runtime_context.product_paths.imu_data
-    )
-
-    for lcf_path, times_path, imu_data_path in zip(lcf_paths, times_paths, imu_data_paths):
-        if (imu_data_path.exists() and
-                not runtime_context.config.massipipe_options.imu_data.overwrite):
-            logger.info(f"Image {imu_data_path.name} exists - skipping.")
-            continue
-
-        logger.info(f"Processing IMU data from {lcf_path.name}")
-        try:
-            imu_data_parser.read_and_save_imu_data(lcf_path, times_path, imu_data_path)
-        except Exception as e:
-            logger.exception(f"Error processing IMU data from {lcf_path.name}")
-            continue
-
 
 def convert_raw_images_to_radiance(runtime_context: RuntimeContext) -> None:
     """Convert raw hyperspectral images (DN) to radiance (microflicks)"""
@@ -54,6 +24,7 @@ def convert_raw_images_to_radiance(runtime_context: RuntimeContext) -> None:
         if rad_path.exists() and not runtime_context.config.massipipe_options.radiance.overwrite:
             logger.info(f"Image {rad_path.name} exists - skipping.")
             continue
+
 
         logger.info(f"Converting {raw_path.name} to radiance")
         try:

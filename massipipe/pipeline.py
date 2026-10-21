@@ -17,7 +17,6 @@ from typing import Union
 
 import yaml
 from pipefunc import PipeFunc, Pipeline
-from pipefunc.helpers import chain
 from pydantic import ValidationError
 
 from massipipe.config import (
@@ -34,26 +33,21 @@ from massipipe.export import (
     copy_visualization_mosaic,
     export_dataset_zip,
 )
+from massipipe.geo_steps import parse_and_save_imu_data
 from massipipe.georeferencing import (
     ImuGeoTransformer,
 )
-from massipipe.glint import FlatSpecGlintCorrector, HedleyGlintCorrector
+from massipipe.hsi.glint import FlatSpecGlintCorrector, HedleyGlintCorrector
+from massipipe.hsi.reflectance import ReflectanceConverter
 from massipipe.image import (
     ExportTarget,
     export_geotiffs,
     export_mosaic,
 )
-from massipipe.processing import (
-    calibrate_irradiance_wavelengths,
-    convert_raw_images_to_radiance,
-    convert_raw_spectra_to_irradiance,
-    parse_and_save_imu_data,
-)
 from massipipe.quicklook import QuickLookProcessor
-from massipipe.reflectance import ReflectanceConverter
+from massipipe.spectral_steps import build_raw_data_cube_pipeline
 from massipipe.utils import add_header_mapinfo
 
-# Get logger
 logger = logging.getLogger(__name__)
 
 def setup_bootstrap_options(
@@ -821,22 +815,12 @@ def run_raw_data_processing(runtime_context: RuntimeContext) -> None:
         except Exception:
             logger.exception("Error while parsing and saving IMU data")
 
-    if _config.radiance.create:
-        try:
-            convert_raw_images_to_radiance(runtime_context)
-        except Exception:
-            logger.exception("Error while converting raw images to radiance")
+    raw_cube_pipeline = build_raw_data_cube_pipeline(runtime_context)
 
-    if _config.irradiance.create:
-        try:
-            convert_raw_spectra_to_irradiance(runtime_context)
-        except Exception:
-            logger.exception("Error while converting raw spectra to irradiance")
-
-        try:
-            calibrate_irradiance_wavelengths(runtime_context)
-        except Exception:
-            logger.exception("Error while calibrating irradiance wavelengths")
+    raw_cube_pipeline.map(
+        {"runtime_context": runtime_context},
+        parallel=False,
+    )
 
 def run_secondary_processing(runtime_context: RuntimeContext) -> None:
     _chain = []
