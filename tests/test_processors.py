@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import massipipe
-from massipipe.radiance import RadianceCalibrationDataset
+from massipipe.hsi.radiance import RadianceCalibrationDataset
 
 
 def test_radiance_calibration_dataset(example_dataset_dir, rad_cal_file_path):

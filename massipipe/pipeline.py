@@ -11,6 +11,7 @@ import os
 import pprint
 import shutil
 import sys
+from concurrent.futures.process import ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Union
@@ -46,7 +47,7 @@ from massipipe.image import (
 )
 from massipipe.quicklook import QuickLookProcessor
 from massipipe.spectral_steps import build_raw_data_cube_pipeline
-from massipipe.utils import add_header_mapinfo
+from massipipe.utils import add_header_mapinfo, time_scope
 
 logger = logging.getLogger(__name__)
 
@@ -817,10 +818,13 @@ def run_raw_data_processing(runtime_context: RuntimeContext) -> None:
 
     raw_cube_pipeline = build_raw_data_cube_pipeline(runtime_context)
 
-    raw_cube_pipeline.map(
+    with time_scope("Raw processing"):
+        with ProcessPoolExecutor(max_workers=1) as executor:
+            raw_cube_pipeline.map(
         {"runtime_context": runtime_context},
-        parallel=False,
-    )
+                parallel=True,
+                executor=executor,
+            )
 
 def run_secondary_processing(runtime_context: RuntimeContext) -> None:
     _chain = []

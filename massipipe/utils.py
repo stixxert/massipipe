@@ -46,7 +46,10 @@ Functions:
 # Imports
 import json
 import logging
+import time
 import warnings
+from contextlib import contextmanager
+from logging import INFO
 from pathlib import Path
 from typing import Union
 
@@ -1020,3 +1023,13 @@ def round_float_up(num: float, to_digit: int = 2) -> float:
 
     rounding_factor = 10 ** (np.floor(np.log10(np.abs(num))) - (to_digit - 1))
     return np.ceil(num / rounding_factor) * rounding_factor
+
+@contextmanager
+def time_scope(description="Scope"):
+    start = time.perf_counter()
+
+    try:
+        yield
+    finally:
+        end = time.perf_counter()
+        logger.log(INFO, f"[{description}] Completed in {round(end - start, 2)} seconds")
