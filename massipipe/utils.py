@@ -42,7 +42,7 @@ Functions:
   interp.).
 
 """
-
+import argparse
 # Imports
 import json
 import logging
@@ -51,7 +51,7 @@ import warnings
 from contextlib import contextmanager
 from logging import INFO
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional
 
 import numpy as np
 import pyproj
@@ -1033,3 +1033,32 @@ def time_scope(description="Scope"):
     finally:
         end = time.perf_counter()
         logger.log(INFO, f"[{description}] Completed in {round(end - start, 2)} seconds")
+
+
+def parse_arguments(args: Optional[list[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="MassiPipe library CLI tool",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    parser.add_argument(
+        "dataset_dir",
+        type=str,
+        help="Path to dataset directory",
+    )
+
+    parser.add_argument(
+        "-config",
+        type=str,
+        default=None,
+        help="Path to config file",
+    )
+
+    parser.add_argument(
+        "-calibration-dir",
+        type=str,
+        default=None,
+        help="Path to calibration directory",
+    )
+
+    return parser.parse_args(args)

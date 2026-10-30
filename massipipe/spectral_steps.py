@@ -1,11 +1,13 @@
 import logging
 from pathlib import Path
+from typing import Type
 
 from pipefunc import Pipeline, pipefunc
 
 from .config import RuntimeContext
 from .hsi.irradiance import IrradianceConverter, WavelengthCalibrator
-from .hsi.radiance import RadianceConverter
+from .hsi.radiance import RadianceConverter, IRadianceConverter, Radiance
+from .utils import time_scope
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +27,21 @@ def get_irrad_paths(runtime_context: RuntimeContext) -> list[Path]:
 def get_raw_spec_paths(runtime_context: RuntimeContext) -> list[Path]:
     return runtime_context.product_paths.raw_spec
 
-@pipefunc(output_name="radiance_converter")
-def assemble_rad_converter(runtime_context: RuntimeContext) -> RadianceConverter:
-    return RadianceConverter(
+def create_rad_converter(runtime_context: RuntimeContext) -> IRadianceConverter:
+    return create_custom_rad_converter(runtime_context, RadianceConverter)
+
+def create_custom_rad_converter(runtime_context: RuntimeContext,
+                                constructor: Type[RadianceConverter]) -> IRadianceConverter:
+    return constructor(
         runtime_context.calibration_paths.radiance,
         set_saturated_pixels_to_zero=runtime_context.config.massipipe_options.radiance.set_saturated_pixels_to_zero,
     )
+
+@pipefunc(output_name="radiance_converter")
+def assemble_rad_converter(runtime_context: RuntimeContext) -> Radiance:
+    assert runtime_context.radiance_converter is not None
+
+    return Radiance(radiance_converter = runtime_context.radiance_converter)
 
 @pipefunc(output_name="rad_dir_gate")
 def ensure_rad_dir(runtime_context: RuntimeContext) -> None:
@@ -39,7 +50,7 @@ def ensure_rad_dir(runtime_context: RuntimeContext) -> None:
 @pipefunc(output_name="radiance_gate", mapspec="raw_path[i], rad_path[i] -> radiance_gate[i]")
 def raw_spectra_to_radiance(
         runtime_context: RuntimeContext,
-        radiance_converter: RadianceConverter,
+        radiance_converter: Radiance,
         raw_path: Path,
         rad_path: Path,
         *,
@@ -51,7 +62,7 @@ def raw_spectra_to_radiance(
     logger.info(f"Converting {raw_path.name} to radiance")
 
     try:
-        radiance_converter.convert_raw_file_to_radiance(raw_path, rad_path)
+        radiance_converter.convert_raw_file(raw_path, rad_path)
     except Exception as _:
         logger.exception(f"Error converting {raw_path.name} to radiance.")
         raise
@@ -118,6 +129,10 @@ def update_irrad_header_wavelengths(wavelength_calibrator: WavelengthCalibrator,
         logger.exception(f"Wavelength calibration failed for {irrad_path.name}")
         raise
 
+@pipefunc(output_name="raw_processed_gate")
+def raw_processing_complete(header_wl_gate: None) -> None:
+    return
+
 def build_raw_data_cube_pipeline(runtime_context: RuntimeContext) -> Pipeline:
     _config = runtime_context.config.massipipe_options
 
@@ -149,7 +164,8 @@ def build_raw_data_cube_pipeline(runtime_context: RuntimeContext) -> Pipeline:
             ensure_irrad_dir,
             raw_spectra_to_irradiance,
             assemble_wavelength_calibrator,
-            calibrate_irrad_wavelengths
+            calibrate_irrad_wavelengths,
+            update_irrad_header_wavelengths,
         ])
 
         includes_raw_paths = True

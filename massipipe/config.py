@@ -18,7 +18,10 @@ from pydantic import (
     PositiveInt,
     ValidationError,
     field_validator,
+    ConfigDict,
 )
+
+from massipipe.hsi.radiance import IRadianceConverter
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,7 @@ class RuntimeContext(BaseModel):
     data_starting_point: DataStartingPoint
     base_filenames: list[str]
 
+    radiance_converter: Any
 
 class BootstrapOptions(BaseModel):
     dataset_dir: Path

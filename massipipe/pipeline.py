@@ -11,6 +11,7 @@ import os
 import pprint
 import shutil
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures.process import ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -45,8 +46,7 @@ from massipipe.image import (
     export_geotiffs,
     export_mosaic,
 )
-from massipipe.quicklook import QuickLookProcessor
-from massipipe.spectral_steps import build_raw_data_cube_pipeline
+from massipipe.spectral_steps import build_raw_data_cube_pipeline, create_rad_converter
 from massipipe.utils import add_header_mapinfo, time_scope
 
 logger = logging.getLogger(__name__)
@@ -374,43 +374,6 @@ def get_irradiance_calibration_path(calibration_dir: Path) -> Path:
             "More than one irradiance calibration file (*.dcp) found in "
             + f"{calibration_dir}"
         )
-
-def create_quicklook_images(runtime_context: RuntimeContext) -> None:
-    """Create quicklook versions of hyperspectral images"""
-
-    logger.info("---- QUICKLOOK IMAGE GENERATION ----")
-
-    runtime_context.base_product_paths.quicklook.mkdir(exist_ok=True)
-
-    _config = runtime_context.config.massipipe_options
-
-    quicklook_processor = QuickLookProcessor(
-        rgb_wl=_config.general.rgb_wl,
-        percentiles=_config.quicklook.percentiles
-    )
-
-    # Determine whether raw or radiance images are used for quicklook
-    if runtime_context.base_product_paths.raw.exists():
-        hyspec_image_paths = runtime_context.product_paths.raw
-        logger.info(f"Creating quicklook images from raw images")
-    else:
-        hyspec_image_paths = runtime_context.product_paths.radiance
-        logger.info(f"Creating quicklook images from radiance images")
-
-    for hyspec_image_path, quicklook_image_path in (
-            zip(hyspec_image_paths, runtime_context.product_paths.quicklook)):
-        if quicklook_image_path.exists() and not _config.quicklook.overwrite:
-            logger.info(f"Image {quicklook_image_path.name} exists - skipping.")
-            continue
-
-        logger.info(f"Creating quicklook version of {hyspec_image_path.name}")
-        try:
-            quicklook_processor.create_quicklook_image_file(
-                hyspec_image_path, quicklook_image_path
-            )
-        except Exception as e:
-            logger.exception(f"Error creating quicklook for {hyspec_image_path.name}")
-            continue
 
 
 def create_and_save_geotransform(runtime_context: RuntimeContext) -> None:
@@ -801,7 +764,8 @@ def run_quicklook(runtime_context: RuntimeContext) -> None:
 
     if runtime_context.config.massipipe_options.quicklook.create:
         try:
-            create_quicklook_images(runtime_context)
+            pass
+            # create_quicklook_images(runtime_context)
         except Exception:
             logger.exception("Error while creating quicklook images")
 
@@ -819,7 +783,7 @@ def run_raw_data_processing(runtime_context: RuntimeContext) -> None:
     raw_cube_pipeline = build_raw_data_cube_pipeline(runtime_context)
 
     with time_scope("Raw processing"):
-        with ProcessPoolExecutor(max_workers=1) as executor:
+        with ThreadPoolExecutor(max_workers=1) as executor:
             raw_cube_pipeline.map(
         {"runtime_context": runtime_context},
                 parallel=True,
@@ -975,7 +939,10 @@ def setup(dataset_dir: str | os.PathLike[str],
         product_paths=ProductPaths(),
         config=config,
         base_filenames=[],
+        radiance_converter=None,
     )
+    
+    runtime_context.radiance_converter = create_rad_converter(runtime_context)
 
     if data_starting_point == "raw":
         process_raw_data_paths(runtime_context)
