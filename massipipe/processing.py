@@ -1,11 +1,22 @@
 import logging
+from typing import Type
 
 from massipipe.config import RuntimeContext
 from massipipe.georeferencing import ImuDataParser
 from massipipe.irradiance import IrradianceConverter, WavelengthCalibrator
-from massipipe.radiance import RadianceConverter
+from massipipe.radiance import IRadianceConverter, Radiance, RadianceConverter
 
 logger = logging.getLogger(__name__)
+
+def create_rad_converter(runtime_context: RuntimeContext) -> IRadianceConverter:
+    return create_custom_rad_converter(runtime_context, RadianceConverter)
+
+def create_custom_rad_converter(runtime_context: RuntimeContext,
+                                constructor: Type[RadianceConverter]) -> IRadianceConverter:
+    return constructor(
+        runtime_context.calibration_paths.radiance,
+        set_saturated_pixels_to_zero=runtime_context.config.massipipe_options.radiance.set_saturated_pixels_to_zero,
+    )
 
 def parse_and_save_imu_data(runtime_context: RuntimeContext):
     """Parse *.lcf and *.times files with IMU data and save as JSON"""
@@ -43,9 +54,11 @@ def convert_raw_images_to_radiance(runtime_context: RuntimeContext) -> None:
 
     runtime_context.base_product_paths.radiance.mkdir(exist_ok=True)
 
-    radiance_converter = RadianceConverter(
-        runtime_context.calibration_paths.radiance,
-        set_saturated_pixels_to_zero=runtime_context.config.massipipe_options.radiance.set_saturated_pixels_to_zero,
+    radiance_converter = Radiance(
+        radiance_converter = create_custom_rad_converter(
+            runtime_context,
+            runtime_context.radiance_converter
+        )
     )
 
     raw_paths, rad_paths = runtime_context.product_paths.raw, runtime_context.product_paths.radiance
@@ -57,7 +70,7 @@ def convert_raw_images_to_radiance(runtime_context: RuntimeContext) -> None:
 
         logger.info(f"Converting {raw_path.name} to radiance")
         try:
-            radiance_converter.convert_raw_file_to_radiance(raw_path, rad_path)
+            radiance_converter.convert_raw_file(raw_path, rad_path)
         except Exception as e:
             logger.exception(f"Error converting {raw_path.name} to radiance.")
             continue

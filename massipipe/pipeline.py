@@ -17,9 +17,9 @@ from typing import Union
 
 import yaml
 from pipefunc import PipeFunc, Pipeline
-from pipefunc.helpers import chain
 from pydantic import ValidationError
 
+from massipipe import FlatSpecGlintCorrector, HedleyGlintCorrector
 from massipipe.config import (
     BaseProductPaths,
     BootstrapOptions,
@@ -37,7 +37,6 @@ from massipipe.export import (
 from massipipe.georeferencing import (
     ImuGeoTransformer,
 )
-from massipipe.glint import FlatSpecGlintCorrector, HedleyGlintCorrector
 from massipipe.image import (
     ExportTarget,
     export_geotiffs,
@@ -50,6 +49,7 @@ from massipipe.processing import (
     parse_and_save_imu_data,
 )
 from massipipe.quicklook import QuickLookProcessor
+from massipipe.radiance import RadianceConverter
 from massipipe.reflectance import ReflectanceConverter
 from massipipe.utils import add_header_mapinfo
 
@@ -987,6 +987,7 @@ def setup(dataset_dir: str | os.PathLike[str],
         product_paths=ProductPaths(),
         config=config,
         base_filenames=[],
+        radiance_converter=RadianceConverter,
     )
 
     if data_starting_point == "raw":

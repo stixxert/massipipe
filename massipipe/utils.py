@@ -42,13 +42,13 @@ Functions:
   interp.).
 
 """
-
 # Imports
 import json
+import argparse
 import logging
 import warnings
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional
 
 import numpy as np
 import pyproj
@@ -1020,3 +1020,31 @@ def round_float_up(num: float, to_digit: int = 2) -> float:
 
     rounding_factor = 10 ** (np.floor(np.log10(np.abs(num))) - (to_digit - 1))
     return np.ceil(num / rounding_factor) * rounding_factor
+
+def parse_arguments(args: Optional[list[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="MassiPipe library CLI tool",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    parser.add_argument(
+        "dataset_dir",
+        type=str,
+        help="Path to dataset directory",
+    )
+
+    parser.add_argument(
+        "-config",
+        type=str,
+        default=None,
+        help="Path to config file",
+    )
+
+    parser.add_argument(
+        "-calibration-dir",
+        type=str,
+        default=None,
+        help="Path to calibration directory",
+    )
+
+    return parser.parse_args(args)

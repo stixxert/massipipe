@@ -13,11 +13,15 @@ Classes:
 
 # Imports
 import logging
+import os
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Union
+from typing import Literal, Protocol, Union
 
 import numpy as np
+from numba import njit
+from numba.misc.special import prange
 from numpy.typing import NDArray
 
 import massipipe.utils as mpu
@@ -221,6 +225,55 @@ class RadianceCalibrationDataset:
         """
         return mpu.read_envi(self.gain_file_path)
 
+class IRadianceConverter(Protocol):
+
+    # TODO: Find out what calibration data can be reused across images
+    def prepare(self):
+        ...
+
+    def convert_raw_image(self, raw_image: NDArray, **kwargs) -> NDArray:
+        ...
+
+@dataclass(frozen=True)
+class Radiance:
+    radiance_converter: IRadianceConverter
+
+    # TODO: currently only for ENVI
+    def convert_raw_file(
+        self,
+        raw_header: os.PathLike[str],
+        radiance_header: os.PathLike[str],
+        interleave: Literal["bip", "bil", "bsq"] = "bip",
+    ) -> None:
+        """Read raw image file, convert to radiance, and save to file.
+
+        Parameters
+        ----------
+        raw_header: Path | str
+            Path to raw hyperspectral image acquired with Resonon Pika L camera.
+        radiance_header: Path | str
+            Path to save converted radiance image to.
+            The name of the header file should match the 'interleave' argument
+            (default: bip), e.g. 'radiance_image.bip.hdr'.
+        interleave: str, {'bip','bil','bsq'}, default 'bip'
+            String indicating how binary image file is organized.
+            See spectral.io.envi.save_image().
+
+        Notes
+        -----
+        The radiance image is saved with the same metadata as the raw image.
+        """
+        raw_image, _, metadata = mpu.read_envi(Path(raw_header))
+
+
+        radiance_image = self.radiance_converter.convert_raw_image(raw_image, **metadata)
+
+        mpu.save_envi(
+            Path(radiance_header),
+            radiance_image,
+            metadata,
+            interleave=interleave,
+        )
 
 class RadianceConverter:
     """A class for converting raw hyperspectral images from Pika L cameras to radiance.
@@ -307,6 +360,14 @@ class RadianceConverter:
         self.rad_conv_metadata = dict()
         self._get_rad_conv_frame()
 
+    # Adherence to Protocol typing below ---
+
+    def prepare(self):
+        pass
+
+    def convert_raw_image(self, raw_image: NDArray, **kwargs) -> NDArray:
+        return self.convert_raw_image_to_radiance(raw_image, kwargs)
+
     def _get_rad_conv_frame(self) -> None:
         """Read radiance conversion frame from file and save as attribute."""
         rad_conv_frame, _, rad_conv_metadata = self.rc_dataset.get_rad_conv_frame()
@@ -386,6 +447,33 @@ class RadianceConverter:
 
         return rad_conv_frame
 
+    def prepare_calibration_data(self, raw_image_metadata: dict) -> tuple[NDArray, NDArray]:
+        # Check input dimensions
+        if int(raw_image_metadata["samples"]) * int(raw_image_metadata["sample binning"]) != 900:
+            raise ValueError(
+                "Sample count and binning does not correspond to "
+                "900 samples in the original image."
+            )
+        if int(raw_image_metadata["bands"]) * int(raw_image_metadata["spectral binning"]) != 600:
+            raise ValueError(
+                "Spectral band count and binning does not correspond to "
+                "600 spectral bands in the original image."
+            )
+
+        # Get dark frame and radiance conversion frames scaled to input image
+        dark_frame, dark_frame_metadata = self._get_best_matching_dark_frame(raw_image_metadata)
+        dark_frame = self._scale_dark_frame(dark_frame, dark_frame_metadata, raw_image_metadata)
+        rad_conv_frame = self._scale_rad_conv_frame(raw_image_metadata)
+
+        # Flip frames if necessary
+        if ("flip radiometric calibration" in raw_image_metadata) and (
+            raw_image_metadata["flip radiometric calibration"] == "True"
+        ):
+            dark_frame = np.flip(dark_frame, axis=1)
+            rad_conv_frame = np.flip(rad_conv_frame, axis=1)
+
+        return dark_frame, rad_conv_frame
+
     def convert_raw_image_to_radiance(
         self,
         raw_image: NDArray,
@@ -428,29 +516,8 @@ class RadianceConverter:
         ----------
         - ["flick" unit](https://en.wikipedia.org/wiki/Flick_(physics))
         """
-        # Check input dimensions
-        if int(raw_image_metadata["samples"]) * int(raw_image_metadata["sample binning"]) != 900:
-            raise ValueError(
-                "Sample count and binning does not correspond to "
-                "900 samples in the original image."
-            )
-        if int(raw_image_metadata["bands"]) * int(raw_image_metadata["spectral binning"]) != 600:
-            raise ValueError(
-                "Spectral band count and binning does not correspond to "
-                "600 spectral bands in the original image."
-            )
 
-        # Get dark frame and radiance conversion frames scaled to input image
-        dark_frame, dark_frame_metadata = self._get_best_matching_dark_frame(raw_image_metadata)
-        dark_frame = self._scale_dark_frame(dark_frame, dark_frame_metadata, raw_image_metadata)
-        rad_conv_frame = self._scale_rad_conv_frame(raw_image_metadata)
-
-        # Flip frames if necessary
-        if ("flip radiometric calibration" in raw_image_metadata) and (
-            raw_image_metadata["flip radiometric calibration"] == "True"
-        ):
-            dark_frame = np.flip(dark_frame, axis=1)
-            rad_conv_frame = np.flip(rad_conv_frame, axis=1)
+        dark_frame, rad_conv_frame = self.prepare_calibration_data(raw_image_metadata)
 
         # Subtract dark current and convert to radiance (microflicks)
         # Note: dark_frame and rad_conv_frame are implicitly "expanded" by broadcasting
@@ -466,36 +533,166 @@ class RadianceConverter:
         # Convert to 16-bit integer format (more efficient for storage)
         return radiance_image.astype(np.uint16)
 
-    def convert_raw_file_to_radiance(
+def _np_common(raw_image: NDArray,
+               dark_frame: NDArray,
+               rad_conv_frame: NDArray,
+               set_saturated_pixels_to_zero: bool,
+               saturation_value: float,
+    ) -> NDArray:
+        # Subtract dark current and convert to radiance (microflicks)
+        # Note: dark_frame and rad_conv_frame are implicitly "expanded" by broadcasting
+
+        radiance_image = raw_image.copy()
+
+        radiance_image -= dark_frame
+
+        radiance_image *= rad_conv_frame
+
+        np.maximum(radiance_image, 0, out=radiance_image)
+
+        # Set saturated pixels to zero (optional)
+        if set_saturated_pixels_to_zero:
+            np.putmask(radiance_image, radiance_image < saturation_value, 0)
+
+        # Convert to 16-bit integer format (more efficient for storage)
+        return radiance_image.astype(np.uint16)
+
+class NumpyOptimisedRadianceConverter(RadianceConverter):
+    def __init__(self,
+                 radiance_calibration_file: Union[Path, str],
+                 set_saturated_pixels_to_zero: Union[bool, None] = True,
+                 saturation_value: int = 2**12 - 1,):
+        super().__init__(radiance_calibration_file, set_saturated_pixels_to_zero, saturation_value)
+
+    def prepare(self):
+        pass
+
+    def convert_raw_image(self, raw_image: NDArray, **kwargs) -> NDArray:
+        return self.convert_raw_image_to_radiance(raw_image, kwargs)
+
+    def convert_raw_image_to_radiance(
         self,
-        raw_header_path: Union[Path, str],
-        radiance_header_path: Union[Path, str],
-        interleave: str = "bip",
-    ) -> None:
-        """Read raw image file, convert to radiance, and save to file.
+        raw_image: NDArray,
+        raw_image_metadata: dict,
+    ) -> NDArray:
+        dark_frame, rad_conv_frame = super().prepare_calibration_data(raw_image_metadata)
 
-        Parameters
-        ----------
-        raw_header_path: Path | str
-            Path to raw hyperspectral image acquired with Resonon Pika L camera.
-        radiance_header_path: Path | str
-            Path to save converted radiance image to.
-            The name of the header file should match the 'interleave' argument
-            (default: bip), e.g. 'radiance_image.bip.hdr'.
-        interleave: str, {'bip','bil','bsq'}, default 'bip'
-            String indicating how binary image file is organized.
-            See spectral.io.envi.save_image().
+        return _np_common(raw_image, dark_frame, rad_conv_frame,
+                          self.set_saturated_pixels_to_zero, self.saturation_value)
 
-        Notes
-        -----
-        The radiance image is saved with the same metadata as the raw image.
-        """
-        raw_image, _, metadata = mpu.read_envi(raw_header_path)
-        radiance_image = self.convert_raw_image_to_radiance(raw_image, metadata)
+@njit(parallel=False, cache=False)
+def _njit_noparallel(raw_image: NDArray,
+               dark_frame: NDArray,
+               rad_conv_frame: NDArray,
+               set_saturated_pixels_to_zero: bool,
+               saturation_value: float,
+) -> NDArray:
+    # Subtract dark current and convert to radiance (microflicks)
+    # Note: dark_frame and rad_conv_frame are implicitly "expanded" by broadcasting
 
-        mpu.save_envi(
-            radiance_header_path,
-            radiance_image,
-            metadata,
-            interleave=interleave,
+    lines, samples, bands = raw_image.shape
+
+    radiance_image = np.empty((lines, samples, bands), dtype=np.uint16)
+
+    for line in range(lines):
+        for sample in range(samples):
+            for band in range(bands):
+                raw_value = raw_image[line, sample, band]
+                dark_value = dark_frame[0, sample, band]
+                rad_conv = rad_conv_frame[0, sample, band]
+
+                value = (raw_value - dark_value) / rad_conv
+
+                if value < 0.0:
+                    value = 0.0
+
+                if set_saturated_pixels_to_zero:
+                    if value > saturation_value:
+                        value = 0.0
+
+                radiance_image[line, sample, band] = np.uint16(value)
+
+    return radiance_image
+
+@njit(parallel=True, cache=False)
+def _njit_parallel(raw_image: NDArray,
+               dark_frame: NDArray,
+               rad_conv_frame: NDArray,
+               set_saturated_pixels_to_zero: bool,
+               saturation_value: float,
+) -> NDArray:
+    lines, samples, bands = raw_image.shape
+
+    radiance_image = np.empty((lines, samples, bands), dtype=np.uint16)
+
+    for line in prange(lines):
+        for sample in range(samples):
+            for band in range(bands):
+                raw_value = raw_image[line, sample, band]
+                dark_value = dark_frame[0, sample, band]
+                rad_conv = rad_conv_frame[0, sample, band]
+
+                value = (raw_value - dark_value) / rad_conv
+
+                if value < 0.0:
+                    value = 0.0
+
+                if set_saturated_pixels_to_zero:
+                    if value > saturation_value:
+                        value = 0.0
+
+                radiance_image[line, sample, band] = np.uint16(value)
+
+    return radiance_image
+
+class NumbaOptimisedRadianceConverter(RadianceConverter):
+    def __init__(self,
+                 radiance_calibration_file: Union[Path, str],
+                 set_saturated_pixels_to_zero: Union[bool, None] = True,
+                 saturation_value: int = 2**12 - 1,):
+        super().__init__(radiance_calibration_file, set_saturated_pixels_to_zero, saturation_value)
+
+    def prepare(self):
+        pass
+
+    def convert_raw_image(self, raw_image: NDArray, **kwargs) -> NDArray:
+        return self.convert_raw_image_to_radiance(raw_image, kwargs)
+
+    def convert_raw_image_to_radiance(
+        self,
+        raw_image: NDArray,
+        raw_image_metadata: dict,
+    ) -> NDArray:
+        dark_frame, rad_conv_frame = super().prepare_calibration_data(raw_image_metadata)
+
+        return _njit_noparallel(
+            raw_image,
+            dark_frame,
+            rad_conv_frame,
+            self.set_saturated_pixels_to_zero,
+            self.saturation_value,
         )
+
+
+class NumbaOptimisedParallelRadianceConverter(RadianceConverter):
+    def __init__(self,
+                 radiance_calibration_file: Union[Path, str],
+                 set_saturated_pixels_to_zero: Union[bool, None] = True,
+                 saturation_value: int = 2**12 - 1,):
+        super().__init__(radiance_calibration_file, set_saturated_pixels_to_zero, saturation_value)
+
+    def prepare(self):
+        pass
+
+    def convert_raw_image(self, raw_image: NDArray, **kwargs) -> NDArray:
+        return self.convert_raw_image_to_radiance(raw_image, kwargs)
+
+    def convert_raw_image_to_radiance(
+        self,
+        raw_image: NDArray,
+        raw_image_metadata: dict,
+    ) -> NDArray:
+        dark_frame, rad_conv_frame = super().prepare_calibration_data(raw_image_metadata)
+
+        return _njit_parallel(raw_image, dark_frame, rad_conv_frame,
+                          self.set_saturated_pixels_to_zero, self.saturation_value)
