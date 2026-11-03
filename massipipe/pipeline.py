@@ -13,10 +13,9 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence, Union
+from typing import Sequence, Type, Union
 
 import yaml
-from pipefunc import pipefunc
 from pydantic import ValidationError
 
 from massipipe.config import (
@@ -43,7 +42,7 @@ from massipipe.glint import FlatSpecGlintCorrector, HedleyGlintCorrector
 from massipipe.irradiance import IrradianceConverter, WavelengthCalibrator
 from massipipe.mosaic import add_geotiff_overviews, convert_geotiff_to_8bit, mosaic_geotiffs
 from massipipe.quicklook import QuickLookProcessor
-from massipipe.radiance import RadianceConverter
+from massipipe.radiance import IRadianceConverter, Radiance, RadianceConverter
 from massipipe.reflectance import ReflectanceConverter
 from massipipe.utils import add_header_mapinfo, header_contains_mapinfo
 
@@ -488,6 +487,22 @@ def create_and_save_geotransform(runtime_context: RuntimeContext) -> None:
             logger.exception(f"Error creating geotransform based on {imu_data_path.name}")
             continue
 
+def create_rad_converter(runtime_context: RuntimeContext) -> IRadianceConverter:
+    return create_custom_rad_converter(runtime_context, RadianceConverter)
+
+
+def create_custom_rad_converter(
+    runtime_context: RuntimeContext,
+    constructor: Type[RadianceConverter],
+) -> IRadianceConverter:
+    return constructor(
+        runtime_context.calibration_paths.radiance,
+        set_saturated_pixels_to_zero=(
+            runtime_context.config.massipipe_options.radiance.set_saturated_pixels_to_zero
+        ),
+    )
+
+
 def convert_raw_images_to_radiance(runtime_context: RuntimeContext) -> None:
     """Convert raw hyperspectral images (DN) to radiance (microflicks)"""
 
@@ -495,9 +510,11 @@ def convert_raw_images_to_radiance(runtime_context: RuntimeContext) -> None:
 
     runtime_context.base_product_paths.radiance.mkdir(exist_ok=True)
 
-    radiance_converter = RadianceConverter(
-        runtime_context.calibration_paths.radiance,
-        set_saturated_pixels_to_zero=runtime_context.config.massipipe_options.radiance.set_saturated_pixels_to_zero,
+    radiance_converter = Radiance(
+        radiance_converter=create_custom_rad_converter(
+            runtime_context,
+            runtime_context.radiance_converter,
+        ),
     )
 
     raw_paths, rad_paths = runtime_context.product_paths.raw, runtime_context.product_paths.radiance
@@ -509,7 +526,7 @@ def convert_raw_images_to_radiance(runtime_context: RuntimeContext) -> None:
 
         logger.info(f"Converting {raw_path.name} to radiance")
         try:
-            radiance_converter.convert_raw_file_to_radiance(raw_path, rad_path)
+            radiance_converter.convert_raw_file(raw_path, rad_path)
         except Exception as e:
             logger.exception(f"Error converting {raw_path.name} to radiance.")
             continue
@@ -1318,6 +1335,7 @@ def setup(dataset_dir: str | os.PathLike[str],
         product_paths=ProductPaths(),
         config=config,
         base_filenames=[],
+        radiance_converter=RadianceConverter,
     )
 
     if data_starting_point == "raw":

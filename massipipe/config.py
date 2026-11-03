@@ -33,7 +33,7 @@ class RuntimeContext(BaseModel):
     config: Config
     data_starting_point: DataStartingPoint
     base_filenames: list[str]
-
+    radiance_converter: Any  # TODO: IRadianceConverter - pydantic not cooperating
 
 class BootstrapOptions(BaseModel):
     dataset_dir: Path
