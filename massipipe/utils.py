@@ -61,10 +61,13 @@ from pyproj import CRS, Proj
 from rasterio.plot import reshape_as_raster
 from scipy.signal import savgol_filter
 
+from massipipe.timing import profiled
+
 # Get logger
 logger = logging.getLogger(__name__)
 
 
+@profiled("data_load")
 def read_envi(
     header_path: Union[Path, str],
     image_path: Union[Path, str, None] = None,
@@ -189,6 +192,7 @@ def write_envi_header(header_path: Union[Path, str], metadata: dict):
         raise
 
 
+@profiled("data_save")
 def save_envi(header_path: Union[Path, str], image: NDArray, metadata: dict, **kwargs) -> None:
     """Save ENVI file with parameters compatible with Spectronon.
 
@@ -668,6 +672,7 @@ def get_nir_ind(
     return nir_ind
 
 
+@profiled("data_save")
 def save_png(rgb_image: NDArray[np.uint8], png_path: Union[Path, str]) -> None:
     """Save RGB image as PNG using rasterio / GDAL.
 
@@ -723,6 +728,7 @@ def read_json(json_path: Union[Path, str]) -> dict:
     return data
 
 
+@profiled("data_compute")
 def random_sample_image(
     image: NDArray, sample_frac: float = 0.5, ignore_zeros: bool = True
 ) -> NDArray:

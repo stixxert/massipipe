@@ -13,6 +13,7 @@ from numpy.typing import NDArray
 from scipy.ndimage import gaussian_filter1d
 
 import massipipe.utils as mpu
+from massipipe.timing import profiled
 
 # Get logger
 logger = logging.getLogger(__name__)
@@ -166,6 +167,7 @@ class ReflectanceConverter:
         """Interpolate downwelling spectrum to image wavelengths"""
         return np.interp(x=image_wl, xp=irrad_wl, fp=irrad_spec)
 
+    @profiled("data_compute")
     def convert_radiance_image_to_reflectance(
         self,
         rad_image: NDArray,
@@ -237,6 +239,7 @@ class ReflectanceConverter:
 
         return refl_image, refl_wl, irrad_spec
 
+    @profiled("reflectance")
     def convert_radiance_file_to_reflectance(
         self,
         radiance_image_header: Union[Path, str],
@@ -304,6 +307,56 @@ class ReflectanceConverter:
         irrad_spec_interp = mpu.irrad_si_nm_to_si_um(irrad_spec_interp)  # Convert to W/(m2*um)
         mpu.add_header_irradiance(irrad_spec_interp, radiance_image_header)
 
+    @profiled("data_compute")
+    def convert_radiance_image_with_irradiance_to_reflectance(
+        self,
+        rad_image: NDArray,
+        rad_wl: NDArray,
+        irrad_spec: NDArray,
+    ) -> Tuple[NDArray, NDArray]:
+        """Convert a radiance image to reflectance using an irradiance spectrum at image wl
+
+        Used when the irradiance spectrum comes from the radiance image header, so it
+        is already in units of W/(m2*um) and sampled at the image wavelengths.
+
+        Parameters
+        ----------
+        rad_image: NDArray
+            Spectral radiance image in units of microflicks = 10e-5 W/(sr*m2*nm).
+            Shape (n_lines, n_samples, n_bands)
+        rad_wl: NDArray
+            Wavelengths (in nanometers) corresponding to each band in rad_image
+        irrad_spec: NDArray
+            Spectral irradiance in units W/(m2*um), sampled at rad_wl
+
+        Returns
+        -------
+        refl_image: NDArray
+            Reflectance image, unitless. Same shape as rad_image for the first two
+            axes, but may be less along the third axis due to limiting of range.
+        refl_wl: NDArray
+            Wavelengths for the reflectance image.
+        """
+
+        # Limit output wavelength range
+        valid_image_wl_ind = (rad_wl >= self.wl_min) & (rad_wl <= self.wl_max)
+        rad_wl = rad_wl[valid_image_wl_ind]
+        rad_image = rad_image[:, :, valid_image_wl_ind]
+        irrad_spec = irrad_spec[valid_image_wl_ind]
+
+        # Make irradiance spectrum compatible with image
+        irrad_spec = mpu.irrad_si_um_to_uflicklike(irrad_spec)  # W/(m2*um) to uW/(cm2*um)
+        irrad_spec = np.expand_dims(irrad_spec, axis=(0, 1))
+
+        # Convert to reflectance, assuming Lambertian (perfectly diffuse) surface
+        refl_image = np.pi * (rad_image.astype(np.float32) / irrad_spec.astype(np.float32))
+
+        # Spectral smoothing (optional)
+        if self.smooth_spectra:
+            refl_image = mpu.savitzky_golay_filter(refl_image)
+
+        return refl_image, rad_wl
+
     def convert_radiance_file_with_irradiance_to_reflectance(
         self,
         radiance_image_header: Union[Path, str],
@@ -335,22 +388,9 @@ class ReflectanceConverter:
             raise KeyError("Field 'solar irradiance' missing from radiance header")
         assert len(irrad_spec) == len(rad_wl)
 
-        # Limit output wavelength range
-        valid_image_wl_ind = (rad_wl >= self.wl_min) & (rad_wl <= self.wl_max)
-        rad_wl = rad_wl[valid_image_wl_ind]
-        rad_image = rad_image[:, :, valid_image_wl_ind]
-        irrad_spec = irrad_spec[valid_image_wl_ind]
-
-        # Make irradiance spectrum compatible with image
-        irrad_spec = mpu.irrad_si_um_to_uflicklike(irrad_spec)  # Convert W/(m2*um) to uW/(cm2*um)
-        irrad_spec = np.expand_dims(irrad_spec, axis=(0, 1))
-
-        # Convert to reflectance, assuming Lambertian (perfectly diffuse) surface
-        refl_image = np.pi * (rad_image.astype(np.float32) / irrad_spec.astype(np.float32))
-
-        # Spectral smoothing (optional)
-        if self.smooth_spectra:
-            refl_image = mpu.savitzky_golay_filter(refl_image)
+        refl_image, rad_wl = self.convert_radiance_image_with_irradiance_to_reflectance(
+            rad_image, rad_wl, irrad_spec
+        )
 
         # Update header wavelength info
         wl_str = mpu.array_to_header_string(rad_wl)

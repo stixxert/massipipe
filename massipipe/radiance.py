@@ -25,6 +25,7 @@ from numba.misc.special import prange
 from numpy.typing import NDArray
 
 import massipipe.utils as mpu
+from massipipe.timing import profiled
 
 # Get logger
 logger = logging.getLogger(__name__)
@@ -239,6 +240,7 @@ class Radiance:
     radiance_converter: IRadianceConverter
 
     # TODO: currently only for ENVI
+    @profiled("radiance")
     def convert_raw_file(
         self,
         raw_header: os.PathLike[str],
@@ -365,6 +367,7 @@ class RadianceConverter:
     def prepare(self):
         pass
 
+    @profiled("data_compute")
     def convert_raw_image(self, raw_image: NDArray, **kwargs) -> NDArray:
         return self.convert_raw_image_to_radiance(raw_image, kwargs)
 
@@ -576,6 +579,7 @@ class NumpyOptimisedRadianceConverter(RadianceConverter):
     def prepare(self):
         pass
 
+    @profiled("data_compute")
     def convert_raw_image(self, raw_image: NDArray, **kwargs) -> NDArray:
         return self.convert_raw_image_to_radiance(raw_image, kwargs)
 
@@ -670,6 +674,7 @@ class NumbaOptimisedRadianceConverter(RadianceConverter):
     def prepare(self):
         pass
 
+    @profiled("data_compute")
     def convert_raw_image(self, raw_image: NDArray, **kwargs) -> NDArray:
         return self.convert_raw_image_to_radiance(raw_image, kwargs)
 
@@ -699,6 +704,7 @@ class NumbaOptimisedParallelRadianceConverter(RadianceConverter):
     def prepare(self):
         pass
 
+    @profiled("data_compute")
     def convert_raw_image(self, raw_image: NDArray, **kwargs) -> NDArray:
         return self.convert_raw_image_to_radiance(raw_image, kwargs)
 

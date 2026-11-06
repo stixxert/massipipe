@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Union
 
 import massipipe.utils as mpu
+from massipipe.timing import profiled
 
 # Get logger
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class QuickLookProcessor:
         self.rgb_wl = rgb_wl if rgb_wl else (640.0, 550.0, 460.0)
         self.percentiles = percentiles if percentiles else (2, 98)
 
+    @profiled("quicklook")
     def create_quicklook_image_file(
         self, raw_path: Union[Path, str], quicklook_path: Union[Path, str]
     ) -> None:

@@ -11,7 +11,7 @@ def main(args=None):
         _pack_args["dataset_dir"] = parsed_args.dataset_dir
 
     if parsed_args.config:
-        _pack_args["config"] = parsed_args.config
+        _pack_args["config_file_path"] = parsed_args.config
 
     if parsed_args.calibration_dir:
         _pack_args["calibration_dir"] = parsed_args.calibration_dir

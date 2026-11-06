@@ -23,6 +23,7 @@ from numpy.typing import NDArray
 from scipy.signal import find_peaks
 
 import massipipe.utils as mpu
+from massipipe.timing import profiled
 
 # Get logger
 logger = logging.getLogger(__name__)
@@ -131,6 +132,7 @@ class IrradianceConverter:
         self._cal_dark_shutter = float(cal_dark_metadata["shutter"])
         self._irrad_sens_shutter = float(irrad_sens_metadata["shutter"])
 
+    @profiled("data_compute")
     def convert_raw_spectrum_to_irradiance(
         self,
         raw_spec: NDArray,
@@ -193,6 +195,7 @@ class IrradianceConverter:
 
         return cal_irrad_spec
 
+    @profiled("irradiance")
     def convert_raw_file_to_irradiance(
         self, raw_spec_path: Union[Path, str], irrad_spec_path: Union[Path, str]
     ) -> None:
@@ -408,6 +411,7 @@ class WavelengthCalibrator:
         self.wl_cal = wl_cal
         self.max_wl_diff = np.max(abs(wl_cal - wl_orig))
 
+    @profiled("data_compute")
     def fit_batch(self, spectrum_header_paths: Iterable[Union[Path, str]]) -> None:
         """Calibrate wavelength based on spectrum with highest SNR (among many).
 

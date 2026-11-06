@@ -3,6 +3,9 @@
 Provides functions for reading, writing, and exporting YAML configuration files,
 and defines Pydantic models for Massipipe processing options.
 """
+
+from __future__ import annotations
+
 import logging
 from datetime import datetime
 from pathlib import Path

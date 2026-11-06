@@ -15,6 +15,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 import massipipe.utils as mpu
+from massipipe.timing import profiled
 
 # Get logger
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class FlatSpecGlintCorrector:
         """
         self.smooth_with_savitsky_golay = smooth_with_savitsky_golay
 
+    @profiled("data_compute")
     def glint_correct_image(self, refl_image: NDArray, refl_wl: NDArray) -> NDArray:
         """
         Remove sun and sky glint from an image by assuming a flat glint spectrum.
@@ -182,6 +184,7 @@ class HedleyGlintCorrector:
         train_spec = np.concat(train_spec)
         self.fit(train_spec, wl)
 
+    @profiled("data_compute")
     def fit(self, train_spec: NDArray, wl: NDArray) -> None:
         """
         Fit the linear glint correction model to training spectra.
@@ -240,6 +243,7 @@ class HedleyGlintCorrector:
 
         return b
 
+    @profiled("data_compute")
     def glint_correct_image(
         self,
         image: NDArray,

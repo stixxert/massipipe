@@ -44,6 +44,7 @@ from massipipe.mosaic import add_geotiff_overviews, convert_geotiff_to_8bit, mos
 from massipipe.quicklook import QuickLookProcessor
 from massipipe.radiance import IRadianceConverter, Radiance, RadianceConverter
 from massipipe.reflectance import ReflectanceConverter
+from massipipe.timing import profiled
 from massipipe.utils import add_header_mapinfo, header_contains_mapinfo
 
 # Get logger
@@ -606,6 +607,7 @@ def create_rgb_geotiff(
                 logger.error("No ENVI header map info or geotransform file - skipping.")
                 continue
 
+@profiled("radiance_rgb")
 def create_radiance_rgb_geotiff(runtime_context: RuntimeContext) -> None:
         """Create georeferenced RGB GeoTIFF versions of radiance"""
 
@@ -652,6 +654,7 @@ def convert_raw_spectra_to_irradiance(runtime_context: RuntimeContext) -> None:
                 logger.exception(f"Irradiance conversion failed for {raw_spec_path.name}")
                 continue
 
+@profiled("irradiance")
 def calibrate_irradiance_wavelengths(runtime_context: RuntimeContext) -> None:
     """Calibrate irradiance wavelengths using Fraunhofer absorption lines"""
 
@@ -678,6 +681,7 @@ def calibrate_irradiance_wavelengths(runtime_context: RuntimeContext) -> None:
                 )
                 continue
 
+@profiled("radiance_gc")
 def glint_correct_radiance_images(runtime_context: RuntimeContext) -> None:
     """Remove water surface reflections of sun and sky light"""
 
@@ -737,6 +741,7 @@ def glint_correct_radiance_images(runtime_context: RuntimeContext) -> None:
                 logger.exception(f"Glint correction failed for {rad_image.name}")
                 continue
 
+@profiled("radiance_gc_rgb")
 def create_glint_corrected_radiance_rgb_geotiff(runtime_context: RuntimeContext) -> None:
     """Create georeferenced GeoTIFF versions of glint corrected radiance"""
 
@@ -870,6 +875,7 @@ def add_mapinfo_to_radiance_header(runtime_context: RuntimeContext) -> None:
             logger.exception(f"Error adding map info to {rad_path.name}")
             continue
 
+@profiled("reflectance_gc")
 def glint_correct_reflectance_images(runtime_context: RuntimeContext) -> None:
     """Correct for sun and sky glint in reflectance images"""
 
@@ -947,6 +953,7 @@ def glint_correct_reflectance_images(runtime_context: RuntimeContext) -> None:
     else:
         logger.error("Unrecognized glint correction method specified in configuration.")
 
+@profiled("reflectance_gc_rgb")
 def create_glint_corrected_reflectance_rgb_geotiff(runtime_context: RuntimeContext) -> None:
     """Create georeferenced GeoTIFF versions of glint corrected reflectance"""
 
@@ -965,6 +972,7 @@ def create_glint_corrected_reflectance_rgb_geotiff(runtime_context: RuntimeConte
         rgb_wl=_config.general.rgb_wl,
     )
 
+@profiled("mosaic")
 def mosaic_geotiffs_managed(
         geotiff_paths: list[Path],
         mosaic_path: Path,
